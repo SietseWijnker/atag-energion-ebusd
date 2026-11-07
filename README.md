@@ -90,6 +90,9 @@ Lessons learned the hard way:
   On the tested system it appears at compressor stops with low water flow (~12-13 l/min), without an error code.
 - The energy counters use divider 352 (derived from integrated power); claytonn73 uses 360 for the same registers.
   Not verified against an independent meter.
+- The *produced energy* counters that the Ariston Nimbus provides (`46d9`…`51d9`, read as low/high word pairs) all
+  read 0 on this Atag, so a COP cannot be taken from the heat pump itself. It can be estimated in Home Assistant
+  from flow × (LWT − EWT) × 4.186 and the electrical power.
 - `hydraulic_scheme` reads 3 (= Flex on this installation), which is not in the inherited value list.
 - `filter-seen = 5` auto-polls every exposed message. Fine on this Atag; on an Ariston Cares S gas boiler this was
   reported to trigger bus address scans and boiler reboots (see
