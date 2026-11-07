@@ -1,0 +1,146 @@
+# Estimated COP (coefficient of performance) for the Atag Energion in Home Assistant.
+#
+# !! APPROXIMATION !!
+# The Atag does not report produced heat: the produced-energy counters that the Ariston Nimbus provides
+# (46d9..51d9) all read 0. The thermal power below is therefore ESTIMATED from the heat pump's own sensors:
+#     thermal power [W] = flow [l/min] / 60 x 4186 J/(kg K) x (LWT - EWT) [K]
+# Limitations, so treat the result as an indication, not a measurement:
+#   - the internal flow meter is not calibrated; a few % flow error is a few % COP error;
+#   - at a typical floor heating delta T of ~5 K, a 0.2 K sensor offset between LWT and EWT is already ~4 %;
+#   - LWT/EWT/flow are polled every 10-30 s, so short transients are missed;
+#   - negative heat (defrost) is counted as 0 (about 0.3 % of the heat on the tested system);
+#   - water is assumed (no glycol); heat losses between the outdoor unit and the sensors are ignored.
+# Daily or weekly values are meaningful; instantaneous values are not.
+# On the tested system (floor heating ~31 C, outdoor 5-6 C) this gave heating COP ~5.7, DHW ~3.5 per day.
+#
+# Entity ids: ebusd entities as created by mqtt-hassio.cfg in this repository; adjust to your installation.
+# binary_sensor.wp_compressor_draait is defined below (the ebusd compressor_state was unreliable here).
+# Electrical power is split on the 3-way valve the same way, so the COP is consistent within a day
+# (the ebusd energy counters only step every ~2 hours).
+#
+# Add to the `template:` section of configuration.yaml (or a templates.yaml included there),
+# then create the helpers listed at the bottom.
+
+- binary_sensor:
+    - name: WP compressor draait
+      unique_id: wp_compressor_draait
+      icon: mdi:heat-pump
+      device_class: running
+      delay_off: "00:01:00"   # bridges short dips to 0 W within a run
+      availability: "{{ has_value('sensor.ebusd_heatpump_heatpump_power_consumption_2') }}"
+      state: "{{ states('sensor.ebusd_heatpump_heatpump_power_consumption_2') | float(0) > 100 }}"
+
+- sensor:
+    - name: WP thermisch vermogen verwarming   # estimated thermal power, space heating (W)
+      unique_id: wp_thermisch_vermogen_verwarming
+      unit_of_measurement: W
+      device_class: power
+      state_class: measurement
+      icon: mdi:radiator
+      availability: >
+        {{ has_value('sensor.ebusd_heatpump_heatpump_flowmeter') and has_value('sensor.ebusd_heatpump_heatpump_lwt_temp_2')
+           and has_value('sensor.ebusd_heatpump_heatpump_ewt_temp_2') and has_value('binary_sensor.wp_compressor_draait') }}
+      state: >
+        {% if is_state('binary_sensor.wp_compressor_draait', 'on')
+              and not is_state('sensor.ebusd_heatpump_heatpump_3way_valve_dhw_heat', 'dhw') %}
+          {% set q = states('sensor.ebusd_heatpump_heatpump_flowmeter') | float(0) / 60 * 4186
+                     * (states('sensor.ebusd_heatpump_heatpump_lwt_temp_2') | float(0)
+                        - states('sensor.ebusd_heatpump_heatpump_ewt_temp_2') | float(0)) %}
+          {{ [q, 0] | max | round(0) }}
+        {% else %}0{% endif %}
+
+    - name: WP thermisch vermogen warmwater    # estimated thermal power, domestic hot water (W)
+      unique_id: wp_thermisch_vermogen_warmwater
+      unit_of_measurement: W
+      device_class: power
+      state_class: measurement
+      icon: mdi:water-boiler
+      availability: >
+        {{ has_value('sensor.ebusd_heatpump_heatpump_flowmeter') and has_value('sensor.ebusd_heatpump_heatpump_lwt_temp_2')
+           and has_value('sensor.ebusd_heatpump_heatpump_ewt_temp_2') and has_value('binary_sensor.wp_compressor_draait') }}
+      state: >
+        {% if is_state('binary_sensor.wp_compressor_draait', 'on')
+              and is_state('sensor.ebusd_heatpump_heatpump_3way_valve_dhw_heat', 'dhw') %}
+          {% set q = states('sensor.ebusd_heatpump_heatpump_flowmeter') | float(0) / 60 * 4186
+                     * (states('sensor.ebusd_heatpump_heatpump_lwt_temp_2') | float(0)
+                        - states('sensor.ebusd_heatpump_heatpump_ewt_temp_2') | float(0)) %}
+          {{ [q, 0] | max | round(0) }}
+        {% else %}0{% endif %}
+
+    - name: WP elektrisch vermogen verwarming  # electrical power while the valve is on heating (W)
+      unique_id: wp_elektrisch_vermogen_verwarming
+      unit_of_measurement: W
+      device_class: power
+      state_class: measurement
+      icon: mdi:radiator
+      availability: "{{ has_value('sensor.ebusd_heatpump_heatpump_power_consumption_2') }}"
+      state: >
+        {{ 0 if is_state('sensor.ebusd_heatpump_heatpump_3way_valve_dhw_heat', 'dhw')
+           else states('sensor.ebusd_heatpump_heatpump_power_consumption_2') | float(0) | round(0) }}
+
+    - name: WP elektrisch vermogen warmwater   # electrical power while the valve is on DHW (W)
+      unique_id: wp_elektrisch_vermogen_warmwater
+      unit_of_measurement: W
+      device_class: power
+      state_class: measurement
+      icon: mdi:water-boiler
+      availability: "{{ has_value('sensor.ebusd_heatpump_heatpump_power_consumption_2') }}"
+      state: >
+        {{ states('sensor.ebusd_heatpump_heatpump_power_consumption_2') | float(0) | round(0)
+           if is_state('sensor.ebusd_heatpump_heatpump_3way_valve_dhw_heat', 'dhw') else 0 }}
+
+# Estimated COP of today = estimated heat / electricity of today (daily helpers below).
+# Only available from 0.5 kWh electricity, so the value does not jump around in the early morning.
+- sensor:
+    - name: WP COP verwarming vandaag
+      unique_id: wp_cop_verwarming_vandaag
+      state_class: measurement
+      icon: mdi:gauge
+      availability: >
+        {{ has_value('sensor.wp_warmte_verwarming_vandaag') and states('sensor.wp_stroom_verwarming_vandaag') | float(0) >= 0.5 }}
+      state: >
+        {{ (states('sensor.wp_warmte_verwarming_vandaag') | float(0) / states('sensor.wp_stroom_verwarming_vandaag') | float(1)) | round(2) }}
+
+    - name: WP COP warmwater vandaag
+      unique_id: wp_cop_warmwater_vandaag
+      state_class: measurement
+      icon: mdi:gauge
+      availability: >
+        {{ has_value('sensor.wp_warmte_warmwater_vandaag') and states('sensor.wp_stroom_warmwater_vandaag') | float(0) >= 0.5 }}
+      state: >
+        {{ (states('sensor.wp_warmte_warmwater_vandaag') | float(0) / states('sensor.wp_stroom_warmwater_vandaag') | float(1)) | round(2) }}
+
+    - name: WP COP vandaag
+      unique_id: wp_cop_vandaag
+      state_class: measurement
+      icon: mdi:gauge
+      availability: >
+        {% set e = states('sensor.wp_stroom_verwarming_vandaag') | float(0) + states('sensor.wp_stroom_warmwater_vandaag') | float(0) %}
+        {{ (has_value('sensor.wp_warmte_verwarming_vandaag') or has_value('sensor.wp_warmte_warmwater_vandaag')) and e >= 0.5 }}
+      state: >
+        {% set h = states('sensor.wp_warmte_verwarming_vandaag') | float(0) + states('sensor.wp_warmte_warmwater_vandaag') | float(0) %}
+        {% set e = states('sensor.wp_stroom_verwarming_vandaag') | float(0) + states('sensor.wp_stroom_warmwater_vandaag') | float(0) %}
+        {{ (h / e) | round(2) if e > 0 else 0 }}
+
+# Helpers (Settings > Devices & services > Helpers), one per power sensor:
+#   1. "Integral sensor" (Riemann sum): source sensor.wp_<thermisch|elektrisch>_vermogen_<verwarming|warmwater>,
+#      method Left, metric prefix k, time unit hours, precision 3, max sub-interval 1 minute,
+#      named "WP <warmte|stroom> <verwarming|warmwater> totaal".
+#   2. "Utility meter": source the integral sensor, cycle daily, periodically resetting,
+#      named "WP <warmte|stroom> <verwarming|warmwater> vandaag".
+# YAML equivalent (configuration.yaml), e.g. for heating heat:
+#   sensor:
+#     - platform: integration
+#       source: sensor.wp_thermisch_vermogen_verwarming
+#       name: WP warmte verwarming totaal
+#       unique_id: wp_warmte_verwarming_totaal
+#       unit_prefix: k
+#       unit_time: h
+#       method: left
+#       round: 3
+#       max_sub_interval: "00:01:00"
+#   utility_meter:
+#     wp_warmte_verwarming_vandaag:
+#       source: sensor.wp_warmte_verwarming_totaal
+#       cycle: daily
+#       periodically_resetting: true

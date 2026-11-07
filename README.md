@@ -34,6 +34,7 @@ are not relevant for the tested setup are disabled. See also
 | `ebus/broadcast.csv`, `ebus/memory.csv` | Standard ebusd definitions (memory circuit is filtered out of HA) |
 | `mqtt-hassio.cfg` | Home Assistant MQTT discovery configuration |
 | `homeassistant/scripts.yaml` | Bounded HA scripts to change the pump PWM and the flow temperature correction safely |
+| `homeassistant/cop_templates.yaml` | **Estimated** daily COP (heating / DHW / total) from flow × ΔT – an approximation, see the comments in the file |
 
 Copy the `ebus/` folder to your ebusd config path and point ebusd's `--mqttint` to `mqtt-hassio.cfg`.
 
@@ -91,8 +92,9 @@ Lessons learned the hard way:
 - The energy counters use divider 352 (derived from integrated power); claytonn73 uses 360 for the same registers.
   Not verified against an independent meter.
 - The *produced energy* counters that the Ariston Nimbus provides (`46d9`…`51d9`, read as low/high word pairs) all
-  read 0 on this Atag, so a COP cannot be taken from the heat pump itself. It can be estimated in Home Assistant
-  from flow × (LWT − EWT) × 4.186 and the electrical power.
+  read 0 on this Atag, so a COP cannot be taken from the heat pump itself. `homeassistant/cop_templates.yaml`
+  estimates it from flow × (LWT − EWT) × 4.186 and the electrical power. This is an approximation (uncalibrated
+  flow meter, small ΔT); use daily or weekly values only.
 - `hydraulic_scheme` reads 3 (= Flex on this installation), which is not in the inherited value list.
 - `filter-seen = 5` auto-polls every exposed message. Fine on this Atag; on an Ariston Cares S gas boiler this was
   reported to trigger bus address scans and boiler reboots (see
