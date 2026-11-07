@@ -29,7 +29,7 @@ are not relevant for the tested setup are disabled. See also
 
 | File | Purpose |
 |---|---|
-| `ebus/ariston.csv` | Message definitions (kept under the upstream name so diffs against upstream stay readable) |
+| `ebus/EnergionM-AllElectric.csv` | Message definitions (derived from the upstream `ariston.csv`) |
 | `ebus/_templates.csv` | Field templates (from upstream) |
 | `ebus/broadcast.csv`, `ebus/memory.csv` | Standard ebusd definitions (memory circuit is filtered out of HA) |
 | `mqtt-hassio.cfg` | Home Assistant MQTT discovery configuration |
@@ -37,6 +37,9 @@ are not relevant for the tested setup are disabled. See also
 | `homeassistant/cop_templates.yaml` | **Estimated** daily COP (heating / DHW / total) from flow × ΔT – an approximation, see the comments in the file |
 
 Copy the `ebus/` folder to your ebusd config path and point ebusd's `--mqttint` to `mqtt-hassio.cfg`.
+ebusd loads every `.csv` in that folder: do not keep an old `ariston.csv` next to `EnergionM-AllElectric.csv`,
+or ebusd reports duplicate message definitions. The file name itself carries no meaning (every line names its
+circuit and address explicitly).
 
 ## Changes compared to the Ariston configuration
 
